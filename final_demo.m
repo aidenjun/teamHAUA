@@ -1,6 +1,6 @@
 %% FINAL DEMO – Noise Signals / Audio Filtering (NSAF)
 % Team HAUA
-% Clean → Noisy → Analysis → Filtering → Comparison
+% Base MATLAB ONLY (no toolboxes)
 
 clear; clc; close all;
 
@@ -45,9 +45,10 @@ subplot(3,1,3)
 plot(t(1:Nplot), noisy(1:Nplot) - clean(1:Nplot))
 title('Noise Component'); grid on;
 
-%% 4. FFT & Spectrogram (Noise Identification)
+%% 4. FFT Analysis (Noise Identification)
 N = length(clean);
 N_fft = 2^nextpow2(N);
+
 f = (0:N_fft-1)*(Fs/N_fft);
 f = f(1:N_fft/2);
 
@@ -61,64 +62,59 @@ title('FFT – Clean'); grid on; xlim([0 Fs/2])
 
 subplot(2,1,2)
 plot(f, FFT_noisy(1:N_fft/2))
-title('FFT – Noisy'); grid on; xlim([0 Fs/2])
+title('FFT – Noisy (60 Hz Spike + Hiss)')
+grid on; xlim([0 Fs/2])
 
-figure;
-subplot(2,1,1)
-spectrogram(clean, hamming(256), 128, 512, Fs, 'yaxis');
-title('Clean Spectrogram'); ylim([0 8]);
-
-subplot(2,1,2)
-spectrogram(noisy, hamming(256), 128, 512, Fs, 'yaxis');
-title('Noisy Spectrogram'); ylim([0 8]);
-
-%% 5. Filter Design
-notch = designfilt('bandstopiir','FilterOrder',4,...
-    'HalfPowerFrequency1',58,'HalfPowerFrequency2',62,...
-    'DesignMethod','butter','SampleRate',Fs);
-
-lpf = designfilt('lowpassiir','FilterOrder',6,...
-    'HalfPowerFrequency',4000,...
-    'DesignMethod','butter','SampleRate',Fs);
-
-%% 6. Time-Domain Filtering
-clean_time = filtfilt(lpf, filtfilt(notch, noisy));
-
-%% 7. Frequency-Domain Filtering
-[b1,a1] = tf(notch);
-[b2,a2] = tf(lpf);
-
-delta = zeros(N_fft,1);
-delta(1) = 1;
-
-h = filter(b2, a2, filter(b1, a1, delta));
-H = fft(h, N_fft);
-
+%% 5. Frequency-Domain Filtering (Toolbox-Free)
 X = fft(noisy, N_fft);
-clean_freq = real(ifft(X .* H));
+H = ones(N_fft,1);
+
+% --- 60 Hz notch (manual) ---
+bw = 2; % Hz bandwidth
+idx_60 = round(f_hum * N_fft / Fs);
+bw_bins = round(bw * N_fft / Fs);
+
+H(idx_60-bw_bins : idx_60+bw_bins) = 0;
+H(N_fft-(idx_60+bw_bins) : N_fft-(idx_60-bw_bins)) = 0;
+
+% --- Low-pass filter at 4 kHz ---
+f_cut = 4000;
+idx_cut = round(f_cut * N_fft / Fs);
+
+H(idx_cut : end-idx_cut) = 0;
+
+% Apply filter
+Y = X .* H;
+clean_freq = real(ifft(Y));
 clean_freq = clean_freq(1:N);
 
-%% 8. Spectrogram After Filtering
+%% 6. FFT Comparison After Filtering
+FFT_filtered = abs(fft(clean_freq, N_fft));
+
 figure;
-subplot(3,1,1)
-spectrogram(noisy, hamming(256),128,512,Fs,'yaxis');
-title('Noisy'); ylim([0 8]);
+plot(f, FFT_noisy(1:N_fft/2),'r'); hold on;
+plot(f, FFT_filtered(1:N_fft/2),'g');
+legend('Noisy','Filtered');
+title('FFT Comparison After Filtering');
+grid on; xlim([0 Fs/2])
 
-subplot(3,1,2)
-spectrogram(clean_time, hamming(256),128,512,Fs,'yaxis');
-title('Filtered (Time)'); ylim([0 8]);
+%% 7. Manual SNR Calculation (Base MATLAB)
+signal_power = mean(clean.^2);
 
-subplot(3,1,3)
-spectrogram(clean_freq, hamming(256),128,512,Fs,'yaxis');
-title('Filtered (Freq)'); ylim([0 8]);
+noise_before = noisy - clean;
+noise_after  = clean_freq - clean;
 
-%% 9. Metrics
-fprintf('SNR before: %.2f dB\n', snr(clean, noisy-clean));
-fprintf('SNR after:  %.2f dB\n', snr(clean, clean_time-clean));
-fprintf('Correlation: %.6f\n', corr(clean_time, clean_freq));
+noise_power_before = mean(noise_before.^2);
+noise_power_after  = mean(noise_after.^2);
 
-%% 10. Save Output Audio
-audiowrite("clean_speech_filtered_time.wav", clean_time, Fs);
+snr_before = 10*log10(signal_power / noise_power_before);
+snr_after  = 10*log10(signal_power / noise_power_after);
+
+fprintf('SNR before filtering: %.2f dB\n', snr_before);
+fprintf('SNR after filtering:  %.2f dB\n', snr_after);
+
+%% 8. Save Output Audio
 audiowrite("clean_speech_filtered_freq.wav", clean_freq, Fs);
 
 disp('FINAL DEMO COMPLETE');
+
