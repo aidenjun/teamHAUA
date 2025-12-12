@@ -1,6 +1,6 @@
 clear; clc; close all;
 
-[clean, Fs] = audioread("wavefile.wav");  
+[clean, Fs] = audioread("wavfile.wav");  
 
 if size(clean,2) > 1
     clean = mean(clean, 2);
